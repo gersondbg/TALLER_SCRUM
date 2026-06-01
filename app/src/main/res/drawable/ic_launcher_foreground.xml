@@ -1,0 +1,25 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Minimalist Moodle Cloud Hybrid Logo -->
+    <!-- Cloud Background Plate -->
+    <path
+        android:fillColor="#00F5D4"
+        android:pathData="M38,62 C34.7,62 32,59.3 32,56 C32,53.4 33.6,51.1 36,50.3 C37.1,44.5 42.1,40 48,40 C51.4,40 54.5,41.5 56.6,44 L62,42 C66.4,42 70,45.6 70,50 C71.2,50.1 72.3,50.6 73.1,51.4 C74.3,52.6 75,54.3 75,56 C75,59.3 72.3,62 69,62 Z" />
+    <!-- Gradient / Accent Overlay representing Graduation Cap plate -->
+    <path
+        android:fillColor="#7B2CBF"
+        android:pathData="M54,28 L76,37 L54,46 L32,37 Z" />
+    <!-- Cap Neck -->
+    <path
+        android:fillColor="#7B2CBF"
+        android:pathData="M41,41.5 L41,49 C41,53 67,53 67,49 L67,41.5" />
+    <!-- Tassel -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,37 L69,37 L69,45"
+        android:strokeWidth="1.5"
+        android:strokeColor="#FFFFFF" />
+</vector>

@@ -1,0 +1,8 @@
+{
+  "name": "Remix: Remix: Remix: Moodle Companion",
+  "description": "Una aplicación integrada con Moodle Cloud para gestionar alertas, exámenes, pagos, matrículas y cambios académicos.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
