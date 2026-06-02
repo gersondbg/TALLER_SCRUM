@@ -65,6 +65,43 @@ data class MoodleCalendarEvent(
 )
 
 @JsonClass(generateAdapter = true)
+data class AssignmentResponse(
+    val courses: List<AssignmentCourse>
+)
+
+@JsonClass(generateAdapter = true)
+data class AssignmentCourse(
+    val id: Int,
+    val fullname: String,
+    val assignments: List<MoodleAssignment>
+)
+
+@JsonClass(generateAdapter = true)
+data class MoodleAssignment(
+    val id: Int,
+    val cmid: Int,
+    val course: Int,
+    val name: String,
+    val duedate: Long,
+    val allowsubmissionsfromdate: Long,
+    val cutoffdate: Long
+)
+
+@JsonClass(generateAdapter = true)
+data class QuizResponse(
+    val quizzes: List<MoodleQuiz>
+)
+
+@JsonClass(generateAdapter = true)
+data class MoodleQuiz(
+    val id: Int,
+    val course: Int,
+    val name: String,
+    val timeopen: Long,
+    val timeclose: Long
+)
+
+@JsonClass(generateAdapter = true)
 data class MoodleError(
     val exception: String?,
     val errorcode: String?,

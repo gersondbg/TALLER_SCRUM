@@ -2,6 +2,10 @@ package com.example.data.repository
 
 import android.content.Context
 import android.util.Log
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.os.Build
+import androidx.core.app.NotificationCompat
 import com.example.data.api.*
 import com.example.data.database.AppDao
 import com.example.data.model.*
@@ -112,7 +116,40 @@ class MoodleRepository(
     }
 
     suspend fun deleteCalendarEvent(id: Long) {
-        appDao.deleteCalendarEvent(id)
+        appDao.deleteCalendarEvent(id.toInt())
+    }
+
+    private suspend fun triggerLocalNotification(title: String, message: String, type: String = "GENERAL") {
+        appDao.insertNotificationLog(NotificationLog(
+            title = title,
+            message = message,
+            type = type
+        ))
+
+        val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val channelId = "moodle_alerts_channel"
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(
+                channelId,
+                "Alertas de Moodle Cloud",
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = "Notificaciones de cambios en cursos y tareas"
+                enableVibration(true)
+            }
+            notificationManager.createNotificationChannel(channel)
+        }
+
+        val builder = NotificationCompat.Builder(context, channelId)
+            .setSmallIcon(android.R.drawable.ic_dialog_alert)
+            .setContentTitle(title)
+            .setContentText(message)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(message))
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setAutoCancel(true)
+
+        notificationManager.notify(System.currentTimeMillis().toInt(), builder.build())
     }
 
     suspend fun loginWithMoodle(url: String, user: String, pass: String): String {
@@ -120,11 +157,9 @@ class MoodleRepository(
         val tokenUrl = "$sanitizedUrl/login/token.php"
         
         try {
-            // Petición real de token a Moodle Cloud (ajustado nombres de parámetros)
             val response = moodleService.getToken(url = tokenUrl, user = user, pass = pass)
             
             if (response.token != null) {
-                // Limpiar TODO lo anterior para asegurar que solo haya datos reales de esta sesión
                 appDao.clearAllCourses()
                 appDao.clearAllEvaluations()
                 appDao.clearAllPayments()
@@ -141,17 +176,14 @@ class MoodleRepository(
                     studentName = user
                 )
                 appDao.insertConfig(updatedConfig)
-                
-                // Sincronizar inmediatamente datos de la nube
                 syncWithMoodle()
-                
                 return response.token
             } else {
-                val errorMsg = response.error ?: "Credenciales de Moodle incorrectas o servicio móvil desactivado."
+                val errorMsg = response.error ?: "Credenciales incorrectas."
                 throw Exception(errorMsg)
             }
         } catch (e: Exception) {
-            Log.e("MoodleRepository", "Fallo de autenticación en Moodle Cloud: ${e.message}")
+            Log.e("MoodleRepository", "Login failed", e)
             throw e
         }
     }
@@ -159,26 +191,20 @@ class MoodleRepository(
     suspend fun testMoodleConnection(url: String, token: String): SiteInfo {
         val sanitizedUrl = sanitizeMoodleUrl(url)
         val fullUrl = "$sanitizedUrl/webservice/rest/server.php"
-        
-        fullUrl.toHttpUrlOrNull() ?: throw IllegalArgumentException("URL de Moodle no válida")
-
         try {
             val response = moodleService.getSiteInfo(url = fullUrl, token = token)
             if (response.exception != null || response.errorcode != null) {
-                throw Exception(response.message ?: "Error desde Moodle: ${response.errorcode}")
+                throw Exception(response.message ?: "Error de Moodle")
             }
             return response
         } catch (e: Exception) {
-            Log.e("MoodleRepository", "Connection test failed", e)
             throw e
         }
     }
 
     suspend fun syncWithMoodle() {
         val currentConfig = appDao.getConfigDirect() ?: return
-        if (currentConfig.moodleUrl.isBlank() || currentConfig.wsToken.isBlank()) {
-            throw Exception("Por favor configura la URL y el Token en Ajustes.")
-        }
+        if (currentConfig.moodleUrl.isBlank() || currentConfig.wsToken.isBlank()) return
 
         val sanitizedUrl = sanitizeMoodleUrl(currentConfig.moodleUrl)
         val fullUrl = "$sanitizedUrl/webservice/rest/server.php"
@@ -186,16 +212,6 @@ class MoodleRepository(
         try {
             val siteInfo = moodleService.getSiteInfo(url = fullUrl, token = currentConfig.wsToken)
             
-            // Manejo específico del error de políticas
-            if (siteInfo.errorcode == "sitepolicynotagreed") {
-                throw Exception("BLOQUEO DE MOODLE: Debes entrar a la web y aceptar las 'Políticas y Acuerdos' para permitir la sincronización.")
-            }
-
-            if (siteInfo.exception != null || siteInfo.errorcode != null) {
-                throw Exception(siteInfo.message ?: "Error desde Moodle: ${siteInfo.errorcode}")
-            }
-
-            // Actualizar perfil con datos reales de Moodle (H3)
             val updatedConfig = currentConfig.copy(
                 studentName = siteInfo.fullname ?: "${siteInfo.firstname} ${siteInfo.lastname}".trim(),
                 studentEmail = siteInfo.username?.let { "$it@univirtual2026.moodlecloud.com" } ?: currentConfig.studentEmail
@@ -203,135 +219,207 @@ class MoodleRepository(
             appDao.insertConfig(updatedConfig)
 
             val mCourses = mutableListOf<MoodleCourse>()
-
-            // Intento 1: core_enrol_get_users_courses (Tradicional)
             try {
-                val courses1 = moodleService.getUserCourses(
-                    url = fullUrl,
-                    token = currentConfig.wsToken,
-                    userId = siteInfo.userid
-                )
-                mCourses.addAll(courses1)
-                Log.d("MoodleRepository", "Intento 1 Exitoso: ${courses1.size} cursos.")
-            } catch (e: Exception) {
-                Log.e("MoodleRepository", "ERROR CRÍTICO INTENTO 1: ${e.message}")
-            }
-
-            // Intento 2: core_course_get_enrolled_courses_by_timeline_classification
-            // Probamos con "all" para traer pasados, presentes y FUTUROS
-            try {
-                val timelineResponse = moodleService.getEnrolledCoursesByTimeline(
-                    url = fullUrl,
-                    token = currentConfig.wsToken,
-                    classification = "all" 
-                )
-                if (timelineResponse.courses.isNotEmpty()) {
-                    mCourses.addAll(timelineResponse.courses)
-                    Log.d("MoodleRepository", "Intento 2 (ALL) exitoso: ${timelineResponse.courses.size} cursos.")
-                }
-            } catch (e: Exception) {
-                Log.e("MoodleRepository", "Intento 2 falló: ${e.message}")
-            }
-
-            // Intento 3: Cursos recientes
-            try {
-                val recent = moodleService.getRecentCourses(url = fullUrl, token = currentConfig.wsToken)
-                mCourses.addAll(recent)
-                Log.d("MoodleRepository", "Intento 3: ${recent.size} cursos encontrados.")
-            } catch (e: Exception) {
-                Log.e("MoodleRepository", "Intento 3 falló: ${e.message}")
-            }
+                mCourses.addAll(moodleService.getUserCourses(fullUrl, currentConfig.wsToken, siteInfo.userid))
+            } catch (e: Exception) { Log.e("MoodleRepository", "Error sync cursos", e) }
 
             if (mCourses.isNotEmpty()) {
-                // Eliminar duplicados por ID y filtrar nulos
                 val uniqueCourses = mCourses.filter { it.id > 0 }.distinctBy { it.id }
-                val dbCourses = uniqueCourses.map { mc ->
+                val courseIds = uniqueCourses.map { it.id }
+                
+                appDao.insertCourses(uniqueCourses.map { mc ->
                     Course(
                         id = mc.id,
                         fullname = mc.fullname ?: mc.displayname ?: "Curso ${mc.id}",
-                        shortname = mc.shortname ?: "C-${mc.id}",
-                        category = "Moodle Cloud",
-                        defaultRoom = "Aula Virtual",
-                        defaultSchedule = "Sincronizado"
+                        shortname = mc.shortname ?: "C-${mc.id}"
                     )
-                }
-                appDao.clearAllCourses() // Limpiar para evitar basura de sesiones anteriores
-                appDao.insertCourses(dbCourses)
-                Log.d("MoodleRepository", "Total cursos guardados en DB: ${dbCourses.size}")
-            }
+                })
 
-            // Sync Calendar Events (H6)
-            try {
-                val calendarResponse = moodleService.getCalendarEvents(
-                    url = fullUrl,
-                    token = currentConfig.wsToken
-                )
-                
-                if (calendarResponse.events.isNotEmpty()) {
-                    val dbEvents = calendarResponse.events.map { me ->
-                        CalendarEvent(
-                            id = me.id,
-                            title = me.name,
-                            dateMillis = me.timestart * 1000L,
-                            type = mapMoodleEventType(me.eventtype, me.name),
-                            courseId = me.courseid ?: 0,
-                            description = me.description ?: ""
+                // 1. Sincronizar Tareas (Assignments)
+                try {
+                    val assignmentResponse = moodleService.getAssignments(fullUrl, currentConfig.wsToken)
+                    for (aCourse in assignmentResponse.courses) {
+                        for (assign in aCourse.assignments) {
+                            processActivity(
+                                id = assign.cmid,
+                                name = assign.name,
+                                courseId = assign.course,
+                                courseName = aCourse.fullname,
+                                dueDateMillis = assign.duedate * 1000L,
+                                description = ""
+                            )
+                        }
+                    }
+                } catch (e: Exception) { Log.e("MoodleRepository", "Error sync assignments", e) }
+
+                // 2. Sincronizar Cuestionarios (Quizzes)
+                try {
+                    val quizResponse = moodleService.getQuizzes(fullUrl, currentConfig.wsToken, courseIds)
+                    for (quiz in quizResponse.quizzes) {
+                        val courseName = uniqueCourses.find { it.id == quiz.course }?.fullname ?: "Curso"
+                        processActivity(
+                            id = quiz.id, // Nota: Quiz no siempre tiene CMID fácil de obtener aquí, usamos id
+                            name = quiz.name,
+                            courseId = quiz.course,
+                            courseName = courseName,
+                            dueDateMillis = quiz.timeclose * 1000L,
+                            description = ""
                         )
                     }
-                    
-                    appDao.clearAllCalendarEvents() // Limpiar para reflejar estado actual de la nube
-                    for (event in dbEvents) {
-                        appDao.insertCalendarEvent(event)
-                    }
-                    Log.d("MoodleRepository", "Sincronizados ${dbEvents.size} eventos de calendario.")
-                } else {
-                    Log.d("MoodleRepository", "No se encontraron eventos de calendario.")
+                } catch (e: Exception) { Log.e("MoodleRepository", "Error sync quizzes", e) }
+
+                // 3. Scan genérico de contenidos (se mantiene por si hay otros tipos)
+                for (course in uniqueCourses) {
+                    try {
+                        val sections = moodleService.getCourseContents(fullUrl, currentConfig.wsToken, course.id)
+                        for (section in sections) {
+                            for (module in section.modules) {
+                                val dueDate = module.dates.find { it.label.contains("Cierre") || it.label.contains("vence") }?.timestamp
+                                if (dueDate != null) {
+                                    val existing = appDao.getAllEvaluationsDirect().find { it.id == module.id }
+                                    val newEval = Evaluation(
+                                        id = module.id,
+                                        title = module.name,
+                                        courseId = course.id,
+                                        courseName = course.fullname ?: "Curso",
+                                        dueDate = dueDate * 1000L,
+                                        description = module.description ?: ""
+                                    )
+
+                                    if (existing == null) {
+                                        triggerLocalNotification("Nueva Actividad", "${course.shortname}: ${module.name}", "ALERT")
+                                        appDao.insertEvaluation(newEval)
+                                    } else if (existing.dueDate != newEval.dueDate) {
+                                        triggerLocalNotification("Fecha Cambiada", "La actividad '${module.name}' del curso ${course.shortname} ha sido reprogramada para el ${java.text.SimpleDateFormat("dd/MM HH:mm", java.util.Locale.getDefault()).format(java.util.Date(newEval.dueDate))}", "ACADEMIC")
+                                        appDao.insertEvaluation(newEval)
+                                        
+                                        // Registrar cambio académico formalmente si es necesario
+                                        appDao.insertAcademicChange(AcademicChange(
+                                            courseId = course.id,
+                                            courseName = course.fullname ?: "Curso",
+                                            oldRoom = "N/A",
+                                            newRoom = "N/A",
+                                            oldSchedule = java.text.SimpleDateFormat("dd/MM HH:mm", java.util.Locale.getDefault()).format(java.util.Date(existing.dueDate)),
+                                            newSchedule = java.text.SimpleDateFormat("dd/MM HH:mm", java.util.Locale.getDefault()).format(java.util.Date(newEval.dueDate)),
+                                            changeDate = System.currentTimeMillis(),
+                                            description = "Reprogramación de actividad: ${module.name}"
+                                        ))
+                                    }
+                                }
+                            }
+                        }
+                    } catch (e: Exception) { Log.e("MoodleRepository", "Scan error ${course.id}", e) }
                 }
-            } catch (e: Exception) {
-                Log.e("MoodleRepository", "Calendar sync failed: ${e.message}")
             }
 
-            val syncLog = NotificationLog(
-                title = "Sincronización Exitosa",
-                message = "Se sincronizaron ${mCourses.size} cursos y eventos desde Moodle Cloud.",
-                type = "ACADEMIC"
-            )
-            appDao.insertNotificationLog(syncLog)
+            try {
+                val calendar = moodleService.getCalendarEvents(fullUrl, currentConfig.wsToken)
+                val existingEvents = appDao.getAllCalendarEventsDirect()
+
+                for (me in calendar.events) {
+                    val type = mapMoodleEventType(me.eventtype, me.name)
+                    val dbEvent = CalendarEvent(
+                        id = me.id,
+                        title = me.name,
+                        dateMillis = me.timestart * 1000L,
+                        type = type,
+                        courseId = me.courseid ?: 0,
+                        description = me.description ?: ""
+                    )
+
+                    val old = existingEvents.find { it.id == me.id }
+                    if (old == null) {
+                        if (type == "EXAMEN") {
+                            triggerLocalNotification("Nuevo Examen Detectado", "${me.name} - Fecha: ${java.text.SimpleDateFormat("dd/MM HH:mm", java.util.Locale.getDefault()).format(java.util.Date(me.timestart * 1000L))}", "ALERT")
+                        } else if (type == "PAGO") {
+                            triggerLocalNotification("Nuevo Pago Pendiente", "Se ha registrado un pago para: ${me.name}", "PAYMENT")
+                        } else {
+                            triggerLocalNotification("Nuevo Evento", me.name, "ALERT")
+                        }
+                    } else if (old.dateMillis != dbEvent.dateMillis) {
+                        triggerLocalNotification("Evento Modificado", "La fecha de '${me.name}' ha cambiado al ${java.text.SimpleDateFormat("dd/MM HH:mm", java.util.Locale.getDefault()).format(java.util.Date(dbEvent.dateMillis))}", "ACADEMIC")
+                    }
+
+                    if (type == "PAGO") {
+                        val existingPayment = appDao.getAllPaymentsDirect().find { it.concept == me.name && it.dueDate == me.timestart * 1000L }
+                        if (existingPayment == null) {
+                            val payment = Payment(
+                                concept = me.name,
+                                amount = 0.0,
+                                dueDate = me.timestart * 1000L,
+                                status = "PENDIENTE"
+                            )
+                            appDao.insertPayment(payment)
+                            
+                            val threeDaysInMillis = 3 * 24 * 60 * 60 * 1000L
+                            val timeDiff = payment.dueDate - System.currentTimeMillis()
+                            if (timeDiff in 0..threeDaysInMillis) {
+                                triggerLocalNotification("Recordatorio de Pago", "La cuota '${me.name}' vence pronto (${java.text.SimpleDateFormat("dd/MM", java.util.Locale.getDefault()).format(java.util.Date(payment.dueDate))}).", "PAYMENT")
+                            }
+                        }
+                    }
+                    appDao.insertCalendarEvent(dbEvent)
+                }
+            } catch (e: Exception) { Log.e("MoodleRepository", "Calendar error", e) }
+
         } catch (e: Exception) {
-            Log.e("MoodleRepository", "Sync failed", e)
-            throw e
+            Log.e("MoodleRepository", "Global sync failure", e)
         }
     }
 
     private fun mapMoodleEventType(type: String?, name: String): String {
-        val lowerName = name.lowercase()
+        val n = name.lowercase()
+        val t = type?.lowercase() ?: ""
         return when {
-            lowerName.contains("examen") || lowerName.contains("parcial") || lowerName.contains("final") -> "EXAMEN"
-            lowerName.contains("pago") || lowerName.contains("cuota") -> "PAGO"
-            type == "course" -> "ACADEMICO"
-            type == "user" -> "PERSONAL"
+            n.contains("pago") || n.contains("cuota") || t.contains("pay") -> "PAGO"
+            n.contains("examen") || n.contains("parcial") || n.contains("final") || t.contains("exam") -> "EXAMEN"
             else -> "GENERAL"
         }
     }
 
     private fun sanitizeMoodleUrl(url: String): String {
         var clean = url.trim()
-        if (!clean.startsWith("http://") && !clean.startsWith("https://")) {
-            clean = "https://$clean"
-        }
-        if (clean.endsWith("/")) {
-            clean = clean.dropLast(1)
-        }
+        if (!clean.startsWith("http")) clean = "https://$clean"
+        if (clean.endsWith("/")) clean = clean.dropLast(1)
         return clean
     }
 
     suspend fun prepopulateIfEmpty() {
-        // FUNCIÓN DESACTIVADA: No queremos datos locales, todo debe venir de Moodle Cloud
-        val currentConfig = appDao.getConfigDirect()
-        if (currentConfig == null) {
-            val defaultConfig = MoodleConfig()
-            appDao.insertConfig(defaultConfig)
+        if (appDao.getConfigDirect() == null) {
+            appDao.insertConfig(MoodleConfig())
         }
-        Log.d("MoodleRepository", "Prepopulate omitido: Modo 100% Cloud activo")
+    }
+
+    private suspend fun processActivity(id: Int, name: String, courseId: Int, courseName: String, dueDateMillis: Long, description: String) {
+        if (dueDateMillis <= 0) return
+        
+        val existing = appDao.getAllEvaluationsDirect().find { it.id == id }
+        val newEval = Evaluation(
+            id = id,
+            title = name,
+            courseId = courseId,
+            courseName = courseName,
+            dueDate = dueDateMillis,
+            description = description
+        )
+
+        if (existing == null) {
+            triggerLocalNotification("Nueva Actividad", "$courseName: $name", "ALERT")
+            appDao.insertEvaluation(newEval)
+        } else if (existing.dueDate != newEval.dueDate) {
+            triggerLocalNotification("Fecha Cambiada", "La actividad '$name' ha sido reprogramada para el ${java.text.SimpleDateFormat("dd/MM HH:mm", java.util.Locale.getDefault()).format(java.util.Date(newEval.dueDate))}", "ACADEMIC")
+            appDao.insertEvaluation(newEval)
+            
+            appDao.insertAcademicChange(AcademicChange(
+                courseId = courseId,
+                courseName = courseName,
+                oldRoom = "N/A",
+                newRoom = "N/A",
+                oldSchedule = java.text.SimpleDateFormat("dd/MM HH:mm", java.util.Locale.getDefault()).format(java.util.Date(existing.dueDate)),
+                newSchedule = java.text.SimpleDateFormat("dd/MM HH:mm", java.util.Locale.getDefault()).format(java.util.Date(newEval.dueDate)),
+                changeDate = System.currentTimeMillis(),
+                description = "Reprogramación de actividad: $name"
+            ))
+        }
     }
 }

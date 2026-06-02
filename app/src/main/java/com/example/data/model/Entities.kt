@@ -36,7 +36,7 @@ data class Course(
 
 @Entity(tableName = "evaluation")
 data class Evaluation(
-    @PrimaryKey(autoGenerate = true) val id: Int = 0,
+    @PrimaryKey val id: Int, // Usamos el ID de Moodle (module id)
     val title: String,
     val courseId: Int,
     val courseName: String,

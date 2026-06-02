@@ -36,6 +36,9 @@ interface AppDao {
     @Query("SELECT * FROM evaluation ORDER BY dueDate ASC")
     fun getAllEvaluations(): Flow<List<Evaluation>>
 
+    @Query("SELECT * FROM evaluation")
+    suspend fun getAllEvaluationsDirect(): List<Evaluation>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertEvaluation(evaluation: Evaluation)
 
@@ -48,6 +51,9 @@ interface AppDao {
     // Payments
     @Query("SELECT * FROM payment ORDER BY dueDate ASC")
     fun getAllPayments(): Flow<List<Payment>>
+
+    @Query("SELECT * FROM payment")
+    suspend fun getAllPaymentsDirect(): List<Payment>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertPayment(payment: Payment)
@@ -100,6 +106,9 @@ interface AppDao {
     // Calendar Events
     @Query("SELECT * FROM calendar_event ORDER BY dateMillis ASC")
     fun getAllCalendarEvents(): Flow<List<CalendarEvent>>
+
+    @Query("SELECT * FROM calendar_event")
+    suspend fun getAllCalendarEventsDirect(): List<CalendarEvent>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertCalendarEvent(calendarEvent: CalendarEvent)

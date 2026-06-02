@@ -1516,7 +1516,7 @@ fun PaymentsScreen(viewModel: MoodleViewModel) {
                                             fontSize = 12.sp,
                                             fontWeight = FontWeight.Bold
                                         )
-                                        IconButton(onClick = { viewModel.deleteCalendarEvent(ev.id) }) {
+                                        IconButton(onClick = { viewModel.deleteCalendarEvent(ev.id.toLong()) }) {
                                             Icon(Icons.Default.DeleteOutline, "Borrar hito", tint = SlateTextSecondary, modifier = Modifier.size(16.dp))
                                         }
                                     }
@@ -3140,7 +3140,6 @@ fun LoginScreen(
                     },
                     label = { Text("Correo o Código de Estudiante") },
                     leadingIcon = { Icon(Icons.Default.Person, contentDescription = null, tint = SlateTextSecondary) },
-                    placeholder = { Text("U202110482 o bravorandypiero@gmail.com") },
                     modifier = Modifier.fillMaxWidth(),
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = SlatePrimary,
@@ -3216,21 +3215,6 @@ fun LoginScreen(
                         CircularProgressIndicator(modifier = Modifier.size(24.dp), color = SlateSurface, strokeWidth = 2.dp)
                     } else {
                         Text("Acceder Seguro", color = SlateSurface, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                    }
-                }
-                
-                Spacer(modifier = Modifier.height(12.dp))
-                
-                // Helper Moodle Cloud credentials
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = SlateSurface),
-                    border = BorderStroke(1.dp, SlateBorder),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(modifier = Modifier.padding(12.dp)) {
-                        Text("💡 Credenciales Oficiales Moodle Cloud", color = SlatePrimary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                        Text("• Usuario: alumno1", color = SlateTextSecondary, fontSize = 10.sp)
-                        Text("• Password: Fgjppqvhp9GzbmR", color = SlateTextSecondary, fontSize = 10.sp)
                     }
                 }
             }
@@ -4537,10 +4521,10 @@ fun CalendarScreen(viewModel: MoodleViewModel, navController: NavHostController)
         val list = mutableListOf<CalendarEvent>()
         list.addAll(calendarEvents)
         evaluations.forEach { ev ->
-            list.add(CalendarEvent(id = -ev.id.toLong(), title = ev.title, dateMillis = ev.dueDate, type = "ALERT", courseId = ev.courseId, description = ev.description))
+            list.add(CalendarEvent(id = -ev.id, title = ev.title, dateMillis = ev.dueDate, type = "ALERT", courseId = ev.courseId, description = ev.description))
         }
         payments.forEach { pay ->
-            list.add(CalendarEvent(id = -pay.id.toLong() - 1000L, title = pay.concept, dateMillis = pay.dueDate, type = "PAGO", courseId = 0, description = "Monto: s/. ${pay.amount}"))
+            list.add(CalendarEvent(id = -pay.id - 1000, title = pay.concept, dateMillis = pay.dueDate, type = "PAGO", courseId = 0, description = "Monto: s/. ${pay.amount}"))
         }
         list
     }

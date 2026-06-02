@@ -50,6 +50,32 @@ interface MoodleApiService {
     ): CalendarEventResponse
 
     @GET
+    suspend fun getCourseContents(
+        @Url url: String,
+        @Query("wstoken") token: String,
+        @Query("courseid") courseId: Int,
+        @Query("wsfunction") function: String = "core_course_get_contents",
+        @Query("moodlewsrestformat") format: String = "json"
+    ): List<MoodleSection>
+
+    @GET
+    suspend fun getAssignments(
+        @Url url: String,
+        @Query("wstoken") token: String,
+        @Query("wsfunction") function: String = "mod_assign_get_assignments",
+        @Query("moodlewsrestformat") format: String = "json"
+    ): AssignmentResponse
+
+    @GET
+    suspend fun getQuizzes(
+        @Url url: String,
+        @Query("wstoken") token: String,
+        @Query("courseids[]") courseIds: List<Int>,
+        @Query("wsfunction") function: String = "mod_quiz_get_quizzes_by_courses",
+        @Query("moodlewsrestformat") format: String = "json"
+    ): QuizResponse
+
+    @GET
     suspend fun getToken(
         @Url url: String,
         @Query("username") user: String,
@@ -57,6 +83,28 @@ interface MoodleApiService {
         @Query("service") service: String = "moodle_mobile_app"
     ): MoodleTokenResponse
 }
+
+@JsonClass(generateAdapter = true)
+data class MoodleSection(
+    val id: Int,
+    val name: String,
+    val modules: List<MoodleModule> = emptyList()
+)
+
+@JsonClass(generateAdapter = true)
+data class MoodleModule(
+    val id: Int,
+    val name: String,
+    val modname: String, // e.g., "assign", "quiz", "resource"
+    val description: String? = null,
+    val dates: List<MoodleModuleDate> = emptyList()
+)
+
+@JsonClass(generateAdapter = true)
+data class MoodleModuleDate(
+    val label: String, // e.g., "Apertura", "Cierre"
+    val timestamp: Long
+)
 
 @JsonClass(generateAdapter = true)
 data class MoodleTokenResponse(

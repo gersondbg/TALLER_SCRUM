@@ -325,6 +325,7 @@ class MoodleViewModel(application: Application) : AndroidViewModel(application) 
     ) {
         viewModelScope.launch {
             val event = CalendarEvent(
+                id = (10000..99999).random(),
                 title = title,
                 dateMillis = dateMillis,
                 type = type,
@@ -367,6 +368,7 @@ class MoodleViewModel(application: Application) : AndroidViewModel(application) 
     ) {
         viewModelScope.launch {
             val eval = Evaluation(
+                id = (10000..99999).random(),
                 title = title,
                 courseId = courseId,
                 courseName = courseName,
